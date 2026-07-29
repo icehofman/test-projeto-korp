@@ -1,0 +1,139 @@
+---
+- name: Provisionamento completo do Projeto Korp
+  hosts: all
+  become: true
+  vars:
+    project_dir: /opt/projeto-korp
+    docker_compose_file: "{{ project_dir }}/docker-compose.yml"
+
+  tasks:
+    - name: Atualizar cache de pacotes
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Instalar dependências
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+          - git
+        state: present
+
+    - name: Adicionar chave GPG do Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Adicionar repositório Docker
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+        state: present
+
+    - name: Instalar Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+
+    - name: Instalar Docker Compose via pip
+      pip:
+        name: docker-compose
+        state: present
+
+    - name: Garantir que o Docker esteja rodando
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Criar diretório do projeto
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copiar arquivos do projeto para o host
+      copy:
+        src: "{{ item }}"
+        dest: "{{ project_dir }}/"
+      with_fileglob:
+        - "../*"   # assume-se que o playbook está na raiz do repositório
+      args:
+        chdir: "{{ playbook_dir }}"
+
+    # Subpastas necessárias
+    - name: Copiar código Go e Dockerfile
+      copy:
+        src: "{{ playbook_dir }}/http-server-projeto-korp/"
+        dest: "{{ project_dir }}/http-server-projeto-korp/"
+        mode: '0755'
+
+    - name: Copiar config Nginx
+      copy:
+        src: "{{ playbook_dir }}/nginx/"
+        dest: "{{ project_dir }}/nginx/"
+        mode: '0755'
+
+    - name: Copiar config Prometheus
+      copy:
+        src: "{{ playbook_dir }}/prometheus/"
+        dest: "{{ project_dir }}/prometheus/"
+        mode: '0755'
+
+    - name: Copiar config Grafana
+      copy:
+        src: "{{ playbook_dir }}/grafana/"
+        dest: "{{ project_dir }}/grafana/"
+        mode: '0755'
+
+    - name: Criar rede Docker bridge (caso não exista)
+      docker_network:
+        name: korp-net
+        driver: bridge
+
+    - name: Build da imagem http-server-projeto-korp
+      docker_image:
+        name: http-server-projeto-korp
+        build:
+          path: "{{ project_dir }}/http-server-projeto-korp"
+          pull: no
+        source: build
+        state: present
+
+    - name: Iniciar containers com Docker Compose
+      docker_compose:
+        project_src: "{{ project_dir }}"
+        state: present
+        build: no   # a imagem já foi construída
+      register: compose_output
+
+    - name: Aguardar inicialização dos serviços
+      pause:
+        seconds: 10
+
+    - name: Validar endpoint via curl
+      uri:
+        url: "http://localhost:80/projeto-korp"
+        return_content: yes
+      register: response
+      until: response.status == 200
+      retries: 5
+      delay: 2
+
+    - name: Exibir resposta do serviço
+      debug:
+        msg: "Resposta do serviço: {{ response.content }}"
+
+    - name: Exibir acesso ao Grafana
+      debug:
+        msg:
+          - "Serviço disponível em http://<host>:80/projeto-korp"
+          - "Prometheus: http://<host>:9090"
+          - "Grafana: http://<host>:3000 (admin/admin)"
+          - "Dashboard 'Projeto Korp - Métricas' provisionado automaticamente."
