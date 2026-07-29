@@ -1,0 +1,15 @@
+FROM ubuntu:22.04
+
+# Instala Ansible e coleção Docker
+RUN apt-get update && \
+    apt-get install -y ansible python3-pip git && \
+    ansible-galaxy collection install community.docker && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /test
+
+# Copia todo o projeto para dentro do container
+COPY . .
+
+# Comando padrão: executa o playbook em modo check contra localhost
+CMD ["ansible-playbook", "-i", "localhost,", "-c", "local", "--check", "playbook.yml"]
