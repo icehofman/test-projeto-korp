@@ -1,5 +1,3 @@
----
-
 # Projeto Korp - Serviço HTTP, Monitoramento e Automação
 
 Este repositório contém a solução completa do desafio **Korp**, contemplando:
@@ -8,13 +6,14 @@ Este repositório contém a solução completa do desafio **Korp**, contemplando
 - Proxy reverso com **NGINX**
 - Monitoramento com **Prometheus** e **Grafana** (dashboard provisionado automaticamente)
 - Automação total do ambiente com **Ansible**
+- Testes do playbook Ansible via Docker
 
 ---
 
 ## Estrutura do Projeto
 
 ```
-test-projeto-korp/
+projeto-korp/
 ├── http-server-projeto-korp/     # Código fonte e Dockerfile do serviço Go
 │   ├── main.go
 │   ├── go.mod
@@ -32,7 +31,9 @@ test-projeto-korp/
 │   └── dashboards/
 │       └── http-server-projeto-korp-dashboard.json
 ├── docker-compose.yml            # Orquestração dos containers
-└── playbook.yml                  # Automação Ansible
+├── playbook.yml                  # Automação Ansible
+├── Dockerfile.test               # Teste rápido do playbook (dry-run)
+└── Dockerfile.fulltest           # Teste completo com provisionamento real
 ```
 
 ---
@@ -105,6 +106,40 @@ Ao final, o serviço e o monitoramento estarão ativos.
 
 ---
 
+## Testando o Playbook Ansible com Docker
+
+Você pode validar o playbook sem precisar de uma máquina remota, utilizando containers Docker que simulam o ambiente de destino.
+
+### Teste rápido de sintaxe e simulação (dry‑run)
+
+Utilize o arquivo `Dockerfile.test` para construir uma imagem que executa o playbook em modo *check*, apenas verificando se a sintaxe e as tarefas são válidas.
+
+**Construir e executar:**
+```bash
+docker build -t playbook-test -f Dockerfile.test .
+docker run --rm playbook-test
+```
+
+### Teste completo com provisionamento real
+
+O arquivo `Dockerfile.fulltest` utiliza uma imagem que suporta systemd e Docker, permitindo que o playbook provisione o próprio container localmente (via socket do Docker ou Docker‑in‑Docker).
+
+**Construir:**
+```bash
+docker build -t playbook-fulltest -f Dockerfile.fulltest .
+```
+
+**Executar (usando o socket do host – requer `--privileged`):**
+```bash
+docker run --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock playbook-fulltest
+```
+
+> **Atenção:** Esse método afeta o Docker do host. Para um teste totalmente isolado, utilize um ambiente Docker‑in‑Docker (ex.: `docker:dind`) e ajuste o playbook conforme necessário.
+
+Após a execução, o container iniciará todos os serviços e exibirá a resposta da validação. Você também pode acessar o Grafana e Prometheus mapeando as portas no comando `docker run` (ex.: `-p 3000:3000 -p 9090:9090 -p 80:80`).
+
+---
+
 ## Configuração do Grafana (bônus)
 
 O Grafana é provisionado automaticamente via arquivos estáticos:
@@ -134,6 +169,7 @@ O serviço Go expõe em `/metrics` as seguintes métricas no formato Prometheus:
 - Toda a comunicação entre containers ocorre na rede `korp-net` (bridge).
 - A porta 80 do host é mapeada para o NGINX; o serviço Go não é exposto diretamente.
 - O playbook Ansible foi testado em Ubuntu 22.04, mas é adaptável a outras distribuições.
+- Os Dockerfiles de teste permitem integração contínua e validação rápida do playbook.
 
 ---
 
