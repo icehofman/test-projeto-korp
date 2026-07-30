@@ -23,13 +23,13 @@ projeto-korp/
 ├── prometheus/                   # Configuração do Prometheus
 │   └── prometheus.yml
 ├── grafana/                      # Provisionamento automático do Grafana
-│   ├── provisioning/
-│   │   ├── datasources/
-│   │   │   └── datasource.yml
-│   │   └── dashboards/
-│   │       └── dashboard.yml
-│   └── dashboards/
-│       └── http-server-projeto-korp-dashboard.json
+│   └── provisioning/
+│       ├── datasources/
+│       │   └── datasource.yml
+│       └── dashboards/
+│           ├── dashboard.yml
+│           └── http-server-projeto-korp-dashboard.json
+│   
 ├── docker-compose.yml            # Orquestração dos containers
 ├── playbook.yml                  # Automação Ansible
 ├── Dockerfile.test               # Teste rápido do playbook (dry-run)
@@ -69,7 +69,7 @@ projeto-korp/
    ```
 3. Aguarde alguns segundos e teste o endpoint:
    ```bash
-   curl http://localhost:80/projeto-korp
+   curl http://localhost:8080/projeto-korp
    ```
    **Resposta esperada:**
    ```json
