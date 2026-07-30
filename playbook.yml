@@ -122,27 +122,34 @@
         state: directory
         mode: '0755'
 
-    - name: Remover qualquer diretório http-server-projeto-korp.conf (se existir)
-      file:
-        path: "{{ project_dir }}/nginx/http-server-projeto-korp.conf"
-        state: absent
+    - name: Garantir que http-server-projeto-korp.conf seja um arquivo (remover se for diretório)
+      shell: |
+        rm -rf "{{ project_dir }}/nginx/http-server-projeto-korp.conf"
+        cat > "{{ project_dir }}/nginx/http-server-projeto-korp.conf" << 'EOF'
+        server {
+            listen 80;
+            server_name localhost;
+
+            location / {
+                proxy_pass http://http-server-projeto-korp:8080;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+        }
+        EOF
+      args:
+        executable: /bin/bash
       when: not ansible_check_mode
 
-    - name: Gerar arquivo de configuração do Nginx
-      copy:
-        content: |
-          server {
-              listen 80;
-              server_name localhost;
+    - name: Verificar conteúdo do diretório nginx (debug)
+      command: ls -la "{{ project_dir }}/nginx"
+      register: nginx_dir_list
+      when: not ansible_check_mode
 
-              location / {
-                  proxy_pass http://http-server-projeto-korp:8080;
-                  proxy_set_header Host $host;
-                  proxy_set_header X-Real-IP $remote_addr;
-              }
-          }
-        dest: "{{ project_dir }}/nginx/http-server-projeto-korp.conf"
-        mode: '0644'
+    - name: Exibir listagem do diretório nginx
+      debug:
+        var: nginx_dir_list.stdout_lines
+      when: not ansible_check_mode
 
     # ---------- CONFIGURAÇÃO DO GRAFANA ----------
     - name: Copiar config Grafana (provisioning)

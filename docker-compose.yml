@@ -18,6 +18,9 @@ services:
       - korp-net
     volumes:
       - ./nginx/:/etc/nginx/conf.d/:ro
+    depends_on:
+      - http-server-projeto-korp
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:latest
