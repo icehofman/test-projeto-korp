@@ -167,7 +167,7 @@ O serviço Go expõe em `/metrics` as seguintes métricas no formato Prometheus:
 
 - O endpoint responde sempre com o horário UTC corrente (`time.Now().UTC()`).
 - Toda a comunicação entre containers ocorre na rede `korp-net` (bridge).
-- A porta 80 do host é mapeada para o NGINX; o serviço Go não é exposto diretamente.
+- A porta 8080 do host é mapeada para o NGINX; o serviço Go não é exposto diretamente.
 - O playbook Ansible foi testado em Ubuntu 22.04, mas é adaptável a outras distribuições.
 - Os Dockerfiles de teste permitem integração contínua e validação rápida do playbook.
 

@@ -1,15 +1,30 @@
 FROM ubuntu:22.04
 
-# Instala Ansible e coleção Docker
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/Sao_Paulo
+
+# Instala todas as dependências que o playbook exige (inclusive Docker e Python Docker SDK)
 RUN apt-get update && \
-    apt-get install -y ansible python3-pip git && \
-    ansible-galaxy collection install community.docker && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y \
+        ansible \
+        python3-pip \
+        git \
+        python3-apt \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        software-properties-common \
+        gpg \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
+    && pip3 install docker \
+    && ansible-galaxy collection install community.docker --force \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /test
 
-# Copia todo o projeto para dentro do container
 COPY . .
 
-# Comando padrão: executa o playbook em modo check contra localhost
 CMD ["ansible-playbook", "-i", "localhost,", "-c", "local", "--check", "playbook.yml"]

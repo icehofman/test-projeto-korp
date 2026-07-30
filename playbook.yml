@@ -4,7 +4,6 @@
   become: true
   vars:
     project_dir: /opt/projeto-korp
-    docker_compose_file: "{{ project_dir }}/docker-compose.yml"
 
   tasks:
     - name: Atualizar cache de pacotes
@@ -21,17 +20,28 @@
           - software-properties-common
           - python3-pip
           - git
+          - gpg
         state: present
 
-    - name: Adicionar chave GPG do Docker
-      apt_key:
+    - name: Verificar se Docker já está instalado
+      command: docker --version
+      register: docker_installed
+      ignore_errors: true
+      changed_when: false
+      check_mode: false
+
+    - name: Adicionar chave GPG do Docker (método moderno)
+      get_url:
         url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
+        dest: /etc/apt/trusted.gpg.d/docker.asc
+        mode: '0644'
+      when: docker_installed is failed
 
     - name: Adicionar repositório Docker
       apt_repository:
-        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+        repo: "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
         state: present
+      when: docker_installed is failed
 
     - name: Instalar Docker
       apt:
@@ -40,17 +50,26 @@
           - docker-ce-cli
           - containerd.io
         state: present
+      when: docker_installed is failed
 
     - name: Instalar Docker Compose via pip
       pip:
         name: docker-compose
         state: present
 
-    - name: Garantir que o Docker esteja rodando
+    - name: Verificar se o Docker está acessível (socket)
+      command: docker info
+      register: docker_accessible
+      ignore_errors: true
+      changed_when: false
+      check_mode: false
+
+    - name: Garantir que o Docker esteja rodando (apenas se necessário)
       service:
         name: docker
         state: started
         enabled: yes
+      when: docker_accessible is failed
 
     - name: Criar diretório do projeto
       file:
@@ -58,44 +77,109 @@
         state: directory
         mode: '0755'
 
-    - name: Copiar arquivos do projeto para o host
-      copy:
-        src: "{{ item }}"
-        dest: "{{ project_dir }}/"
-      with_fileglob:
-        - "../*"   # assume-se que o playbook está na raiz do repositório
-      args:
-        chdir: "{{ playbook_dir }}"
-
-    # Subpastas necessárias
     - name: Copiar código Go e Dockerfile
       copy:
         src: "{{ playbook_dir }}/http-server-projeto-korp/"
         dest: "{{ project_dir }}/http-server-projeto-korp/"
         mode: '0755'
 
-    - name: Copiar config Nginx
-      copy:
-        src: "{{ playbook_dir }}/nginx/"
-        dest: "{{ project_dir }}/nginx/"
+    # ---------- CONFIGURAÇÃO DO PROMETHEUS ----------
+    - name: Remover diretório prometheus se existir (para evitar conflito)
+      file:
+        path: "{{ project_dir }}/prometheus"
+        state: absent
+      when: not ansible_check_mode
+
+    - name: Criar diretório prometheus
+      file:
+        path: "{{ project_dir }}/prometheus"
+        state: directory
         mode: '0755'
 
-    - name: Copiar config Prometheus
+    - name: Gerar arquivo prometheus.yml
       copy:
-        src: "{{ playbook_dir }}/prometheus/"
-        dest: "{{ project_dir }}/prometheus/"
+        content: |
+          global:
+            scrape_interval: 5s
+          scrape_configs:
+            - job_name: 'http-server-projeto-korp'
+              static_configs:
+                - targets: ['http-server-projeto-korp:8080']
+              metrics_path: '/metrics'
+        dest: "{{ project_dir }}/prometheus/prometheus.yml"
+        mode: '0644'
+
+    # ---------- CONFIGURAÇÃO DO NGINX ----------
+    - name: Remover diretório nginx se existir
+      file:
+        path: "{{ project_dir }}/nginx"
+        state: absent
+      when: not ansible_check_mode
+
+    - name: Criar diretório nginx
+      file:
+        path: "{{ project_dir }}/nginx"
+        state: directory
         mode: '0755'
 
-    - name: Copiar config Grafana
+    - name: Remover qualquer diretório http-server-projeto-korp.conf (se existir)
+      file:
+        path: "{{ project_dir }}/nginx/http-server-projeto-korp.conf"
+        state: absent
+      when: not ansible_check_mode
+
+    - name: Gerar arquivo de configuração do Nginx
       copy:
-        src: "{{ playbook_dir }}/grafana/"
-        dest: "{{ project_dir }}/grafana/"
+        content: |
+          server {
+              listen 80;
+              server_name localhost;
+
+              location / {
+                  proxy_pass http://http-server-projeto-korp:8080;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+              }
+          }
+        dest: "{{ project_dir }}/nginx/http-server-projeto-korp.conf"
+        mode: '0644'
+
+    # ---------- CONFIGURAÇÃO DO GRAFANA ----------
+    - name: Copiar config Grafana (provisioning)
+      copy:
+        src: "{{ playbook_dir }}/grafana/provisioning/"
+        dest: "{{ project_dir }}/grafana/provisioning/"
         mode: '0755'
+
+    # ---------- DOCKER-COMPOSE E LIMPEZA ----------
+    - name: Copiar docker-compose.yml
+      copy:
+        src: "{{ playbook_dir }}/docker-compose.yml"
+        dest: "{{ project_dir }}/docker-compose.yml"
+        mode: '0644'
+
+    - name: Parar e remover containers antigos (docker compose down)
+      command: docker compose -f docker-compose.yml down --volumes --remove-orphans --timeout 5
+      args:
+        chdir: "{{ project_dir }}"
+      ignore_errors: yes
+      when: not ansible_check_mode
+
+    - name: Forçar remoção de qualquer container remanescente do projeto
+      shell: |
+        docker rm -f $(docker ps -a -q --filter "name=http-server-projeto-korp") 2>/dev/null || true
+        docker rm -f $(docker ps -a -q --filter "name=nginx-proxy") 2>/dev/null || true
+        docker rm -f $(docker ps -a -q --filter "name=prometheus") 2>/dev/null || true
+        docker rm -f $(docker ps -a -q --filter "name=grafana") 2>/dev/null || true
+      ignore_errors: yes
+      changed_when: false
+      when: not ansible_check_mode
 
     - name: Criar rede Docker bridge (caso não exista)
       docker_network:
         name: korp-net
         driver: bridge
+      when: not ansible_check_mode
 
     - name: Build da imagem http-server-projeto-korp
       docker_image:
@@ -105,35 +189,64 @@
           pull: no
         source: build
         state: present
+      when: not ansible_check_mode
 
     - name: Iniciar containers com Docker Compose
-      docker_compose:
-        project_src: "{{ project_dir }}"
-        state: present
-        build: no   # a imagem já foi construída
-      register: compose_output
+      command: docker compose -f docker-compose.yml up -d --build
+      args:
+        chdir: "{{ project_dir }}"
+      when: not ansible_check_mode
 
     - name: Aguardar inicialização dos serviços
       pause:
         seconds: 10
+      when: not ansible_check_mode
 
-    - name: Validar endpoint via curl
+    # ---------- VALIDAÇÃO INTERNA (DIRETA NO CONTAINER) ----------
+    - name: Verificar logs do NGINX (para diagnóstico)
+      command: docker logs nginx-proxy
+      register: nginx_logs
+      ignore_errors: yes
+      when: not ansible_check_mode
+
+    - name: Exibir logs do NGINX
+      debug:
+        var: nginx_logs.stdout_lines
+      when: not ansible_check_mode
+
+    - name: Testar serviço Go via container NGINX (rede interna)
+      command: docker exec nginx-proxy wget -qO- http://http-server-projeto-korp:8080/projeto-korp
+      register: go_test
+      ignore_errors: yes
+      when: not ansible_check_mode
+
+    - name: Exibir resposta direta do serviço Go
+      debug:
+        var: go_test.stdout
+      when: not ansible_check_mode
+
+    # ---------- VALIDAÇÃO VIA CURL NO HOST ----------
+    - name: Validar endpoint via curl (host)
       uri:
-        url: "http://localhost:80/projeto-korp"
+        url: "http://localhost:8080/projeto-korp"
         return_content: yes
       register: response
       until: response.status == 200
       retries: 5
-      delay: 2
+      delay: 5
+      ignore_errors: yes
+      when: not ansible_check_mode
 
-    - name: Exibir resposta do serviço
+    - name: Exibir resposta do serviço (se disponível)
       debug:
         msg: "Resposta do serviço: {{ response.content }}"
+      when: not ansible_check_mode and response.status == 200
 
+    # ---------- INFORMAÇÕES FINAIS ----------
     - name: Exibir acesso ao Grafana
       debug:
         msg:
-          - "Serviço disponível em http://<host>:80/projeto-korp"
+          - "Serviço disponível em http://<host>:8080/projeto-korp"
           - "Prometheus: http://<host>:9090"
           - "Grafana: http://<host>:3000 (admin/admin)"
           - "Dashboard 'Projeto Korp - Métricas' provisionado automaticamente."

@@ -1,13 +1,21 @@
 FROM geerlingguy/docker-ubuntu2204-ansible:latest
 
-# Instala coleção community.docker
-RUN ansible-galaxy collection install community.docker
+# Instala todas as dependências que o playbook tentaria instalar
+RUN apt-get update && \
+    apt-get install -y \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        software-properties-common \
+        python3-pip \
+        git \
+        gpg \
+    && ansible-galaxy collection install community.docker --force \
+    && pip3 install docker \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /test
+
 COPY . .
 
-# Prepara inventário local
-RUN echo "localhost ansible_connection=local" > /etc/ansible/hosts
-
-# O playbook será executado como entrypoint
-ENTRYPOINT ["ansible-playbook", "-i", "localhost,", "-c", "local", "playbook.yml"]
+CMD ["ansible-playbook", "-i", "localhost,", "-c", "local", "playbook.yml"]

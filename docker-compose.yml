@@ -17,7 +17,7 @@ services:
     networks:
       - korp-net
     volumes:
-      - ./nginx/http-server-projeto-korp.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/:/etc/nginx/conf.d/:ro
 
   prometheus:
     image: prom/prometheus:latest
@@ -25,7 +25,7 @@ services:
     networks:
       - korp-net
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/:/etc/prometheus/:ro
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
     ports:
@@ -40,6 +40,6 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_DISABLE_INITIAL_ADMIN_PASSWORD_CHANGE=true
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
