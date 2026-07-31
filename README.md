@@ -3,8 +3,8 @@
 Este repositório contém a solução completa do desafio **Korp**, contemplando:
 
 - Serviço HTTP em **Golang** expondo métricas para Prometheus
-- Proxy reverso com **NGINX**
-- Monitoramento com **Prometheus** e **Grafana** (dashboard provisionado automaticamente)
+- Proxy reverso com **NGINX** (funcional com resolução de DNS e dependência de inicialização)
+- Monitoramento com **Prometheus** e **Grafana** (dashboard provisionado automaticamente, com gauge corrigido)
 - Automação total do ambiente com **Ansible**
 - Testes do playbook Ansible via Docker
 
@@ -23,17 +23,17 @@ projeto-korp/
 ├── prometheus/                   # Configuração do Prometheus
 │   └── prometheus.yml
 ├── grafana/                      # Provisionamento automático do Grafana
-│   └── provisioning/
-│       ├── datasources/
-│       │   └── datasource.yml
-│       └── dashboards/
-│           ├── dashboard.yml
-│           └── http-server-projeto-korp-dashboard.json
-│   
+│   ├── provisioning/
+│   │   ├── datasources/
+│   │   │   └── datasource.yml
+│   │   └── dashboards/
+│   │       ├── dashboard.yml
+│   │       └── http-server-projeto-korp-dashboard.json
 ├── docker-compose.yml            # Orquestração dos containers
 ├── playbook.yml                  # Automação Ansible
-├── Dockerfile.test               # Teste rápido do playbook (dry-run)
-└── Dockerfile.fulltest           # Teste completo com provisionamento real
+├── Dockerfile.test               # Teste rápido do playbook (dry‑run)
+├── Dockerfile.fulltest           # Teste completo com provisionamento real
+└── README.md
 ```
 
 ---
@@ -73,18 +73,18 @@ projeto-korp/
    ```
    **Resposta esperada:**
    ```json
-   {"nome":"Projeto Korp","horario":"2025-01-01T12:00:00Z"}
+   {"nome":"Projeto Korp","horario":"2026-07-30T18:11:11Z"}
    ```
 4. Acesse as interfaces de monitoramento:
    - **Prometheus:** http://localhost:9090
-   - **Grafana:** http://localhost:3000 (usuário `admin`, senha `admin`)
+   - **Grafana:** http://localhost:3000 (usuário `admin`, senha `admin` – **sem exigência de troca de senha**)
    - O dashboard **"Projeto Korp - Métricas"** já estará disponível automaticamente.
 
 ---
 
 ## Automação com Ansible
 
-O playbook **`playbook.yml`** provisiona todo o ambiente em um host Linux remoto, incluindo instalação do Docker, build da imagem, subida dos containers e validação.
+O playbook **`playbook.yml`** provisiona todo o ambiente em um host Linux remoto (ou local via container), incluindo instalação do Docker, build da imagem, subida dos containers e validação.
 
 ### Uso
 
@@ -92,15 +92,16 @@ Edite o comando abaixo com os dados do seu host:
 ```bash
 ansible-playbook -i 'IP_DO_HOST,' -u usuario --private-key chave.pem playbook.yml
 ```
-> **Nota:** Se estiver executando localmente, use `-i 'localhost,' -c local` e remova a opção `become: true` ou garanta permissões.
+> **Nota:** Se estiver executando localmente, use `-i 'localhost,' -c local` e remova `become: true` ou garanta permissões.
 
 O playbook realiza as seguintes etapas:
 1. Instala Docker e Docker Compose no destino
 2. Copia todos os arquivos do projeto para `/opt/projeto-korp`
-3. Constrói a imagem do serviço Go
-4. Sobe os containers com Docker Compose
-5. Aguarda inicialização e valida a resposta HTTP
-6. Exibe a resposta no console e as URLs de acesso
+3. Gera as configurações do Prometheus, NGINX e Grafana (evitando conflitos de diretórios)
+4. Constrói a imagem do serviço Go
+5. Sobe os containers com Docker Compose
+6. Valida o serviço internamente (via container temporário) e exibe a resposta JSON
+7. Exibe as URLs de acesso
 
 Ao final, o serviço e o monitoramento estarão ativos.
 
@@ -122,7 +123,7 @@ docker run --rm playbook-test
 
 ### Teste completo com provisionamento real
 
-O arquivo `Dockerfile.fulltest` utiliza uma imagem que suporta systemd e Docker, permitindo que o playbook provisione o próprio container localmente (via socket do Docker ou Docker‑in‑Docker).
+O arquivo `Dockerfile.fulltest` utiliza uma imagem que suporta Docker, permitindo que o playbook provisione o próprio container localmente (via socket do Docker).
 
 **Construir:**
 ```bash
@@ -136,7 +137,7 @@ docker run --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock playbo
 
 > **Atenção:** Esse método afeta o Docker do host. Para um teste totalmente isolado, utilize um ambiente Docker‑in‑Docker (ex.: `docker:dind`) e ajuste o playbook conforme necessário.
 
-Após a execução, o container iniciará todos os serviços e exibirá a resposta da validação. Você também pode acessar o Grafana e Prometheus mapeando as portas no comando `docker run` (ex.: `-p 3000:3000 -p 9090:9090 -p 80:80`).
+Após a execução, o playbook exibirá a resposta do serviço (JSON) e as URLs de acesso. O Grafana e Prometheus estarão acessíveis nas portas mapeadas.
 
 ---
 
@@ -147,8 +148,10 @@ O Grafana é provisionado automaticamente via arquivos estáticos:
 - **datasource.yml** – conecta ao Prometheus interno (`http://prometheus:9090`)
 - **dashboard.yml** – registra o provedor de dashboards
 - **http-server-projeto-korp-dashboard.json** – painel com as métricas:
-  - **Disponibilidade** (gauge `service_up`)
+  - **Disponibilidade** (gauge `service_up`, escala 0–1, verde quando ≥ 1)
   - **Volume de requisições** (taxa de `http_requests_total`)
+
+O gauge foi ajustado para exibir o arco completo e verde quando o serviço está disponível, sem sobreposição de cores.
 
 Nenhuma ação manual é necessária.
 
@@ -167,9 +170,10 @@ O serviço Go expõe em `/metrics` as seguintes métricas no formato Prometheus:
 
 - O endpoint responde sempre com o horário UTC corrente (`time.Now().UTC()`).
 - Toda a comunicação entre containers ocorre na rede `korp-net` (bridge).
-- A porta 8080 do host é mapeada para o NGINX; o serviço Go não é exposto diretamente.
+- A porta **8080** do host é mapeada para o NGINX (porta 80 interna); o serviço Go não é exposto diretamente.
 - O playbook Ansible foi testado em Ubuntu 22.04, mas é adaptável a outras distribuições.
 - Os Dockerfiles de teste permitem integração contínua e validação rápida do playbook.
+- O NGINX foi configurado com `depends_on` e `restart` para garantir que o proxy reverso funcione corretamente, resolvendo o problema de DNS entre containers.
 
 ---
 
