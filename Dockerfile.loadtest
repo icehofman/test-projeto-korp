@@ -1,0 +1,11 @@
+FROM curlimages/curl:latest
+
+# Número de requisições (altere conforme desejado)
+ENV REQUESTS=10000
+
+CMD sh -c "for i in \$(seq 1 $REQUESTS); do \
+             curl -s http://http-server-projeto-korp:8080/projeto-korp > /dev/null; \
+             printf '.'; \
+           done; \
+           echo ''; \
+           echo 'Teste finalizado: $REQUESTS requisições enviadas.'"

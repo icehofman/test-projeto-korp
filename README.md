@@ -7,6 +7,7 @@ Este repositório contém a solução completa do desafio **Korp**, contemplando
 - Monitoramento com **Prometheus** e **Grafana** (dashboard provisionado automaticamente, com gauge corrigido)
 - Automação total do ambiente com **Ansible**
 - Testes do playbook Ansible via Docker
+- Script Docker para teste de carga (milhares de requisições)
 
 ---
 
@@ -33,6 +34,7 @@ projeto-korp/
 ├── playbook.yml                  # Automação Ansible
 ├── Dockerfile.test               # Teste rápido do playbook (dry‑run)
 ├── Dockerfile.fulltest           # Teste completo com provisionamento real
+├── Dockerfile.loadtest           # Container para teste de carga
 └── README.md
 ```
 
@@ -138,6 +140,62 @@ docker run --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock playbo
 > **Atenção:** Esse método afeta o Docker do host. Para um teste totalmente isolado, utilize um ambiente Docker‑in‑Docker (ex.: `docker:dind`) e ajuste o playbook conforme necessário.
 
 Após a execução, o playbook exibirá a resposta do serviço (JSON) e as URLs de acesso. O Grafana e Prometheus estarão acessíveis nas portas mapeadas.
+
+---
+
+## Teste de carga (milhares de requisições)
+
+Um container dedicado permite disparar milhares de requisições contra o serviço, ideal para visualizar o gráfico de volume no Grafana.
+
+### Pré‑requisito: ambiente em execução
+
+Certifique‑se de que os containers estão rodando:
+
+```bash
+docker-compose up -d --build
+```
+
+### Identifique o nome da rede Docker
+
+O nome da rede é gerado a partir do diretório do projeto. Para listá‑lo:
+
+```bash
+docker network ls | grep korp
+# Exemplo de saída: test-projeto-korp_korp-net
+```
+
+Anote o nome exato que aparecer na coluna `NAME`.
+
+### Usando o Dockerfile.loadtest (recomendado)
+
+1. Construa a imagem:
+   ```bash
+   docker build -t load-test -f Dockerfile.loadtest .
+   ```
+
+2. Execute o teste informando a rede correta:
+   ```bash
+   docker run --rm --network <NOME_DA_REDE> load-test
+   ```
+   - Por padrão, envia **10.000 requisições**. Para alterar, informe a variável `REQUESTS`:
+     ```bash
+     docker run --rm --network <NOME_DA_REDE> -e REQUESTS=50000 load-test
+     ```
+
+   Exemplo com o nome `test-projeto-korp_korp-net`:
+   ```bash
+   docker run --rm --network test-projeto-korp_korp-net load-test
+   ```
+
+### Alternativa rápida (sem build)
+
+Substitua `<NOME_DA_REDE>` pelo nome identificado anteriormente:
+
+```bash
+docker run --rm --network <NOME_DA_REDE> curlimages/curl sh -c 'for i in $(seq 10000); do curl -s http://http-server-projeto-korp:8080/projeto-korp; echo; done'
+```
+
+Enquanto o teste executa, acesse o dashboard no Grafana e veja o gráfico de "Volume de Requisições" subir.
 
 ---
 
